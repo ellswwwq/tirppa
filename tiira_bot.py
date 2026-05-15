@@ -47,7 +47,9 @@ def fetch_tampere_observations():
     current_year = today.year
     current_date = None
     current_species = None
+
     observations = []
+    seen_species_by_date = set()
 
     for line in raw_lines:
         date_match = re.fullmatch(r"(\d{1,2})\.(\d{1,2})\.", line)
@@ -70,10 +72,19 @@ def fetch_tampere_observations():
             continue
 
         if "tampere" in line.lower():
-            if current_species:
-                observations.append(f"{current_species} {line}")
-            else:
-                observations.append(line)
+            if not current_species:
+                continue
+
+            species_key = (
+                current_date.isoformat(),
+                current_species.lower()
+            )
+
+            if species_key in seen_species_by_date:
+                continue
+
+            seen_species_by_date.add(species_key)
+            observations.append(f"{current_species} {line}")
 
     return observations
 
@@ -110,14 +121,14 @@ def main():
 
     if not observations:
         message = (
-            f"Tampere-havainnot {yesterday_text} ja {today_text}:\n\n"
+            f"Tampereen erikoislajit {yesterday_text} ja {today_text}:\n\n"
             "Ei havaintoja."
         )
         send_telegram(message)
         return
 
     message = (
-        f"Tampere-havainnot {yesterday_text} ja {today_text}:\n\n"
+        f"Tampereen erikoislajit {yesterday_text} ja {today_text}:\n\n"
         + "\n\n".join(observations)
     )
 
