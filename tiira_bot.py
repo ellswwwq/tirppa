@@ -1,39 +1,39 @@
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
-import json
-import os
-import hashlib
+from datetime import datetime
 import re
+import logging
+from telegram import Update
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes
+)
+
+# =========================
+# ASETUKSET
+# =========================
+
+BOT_TOKEN = "OMA_BOT_TOKEN"
 
 URL = "https://www.tiira.fi/mielenkiintoiset2_PiLY.html"
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
+# =========================
+# LOKIT
+# =========================
 
-SEEN_FILE = "lahetetyt_havainnot.json"
+logging.basicConfig(
+    format="%(asctime)s %(name)s %(levelname)s %(message)s",
+    level=logging.INFO
+)
 
-def load_seen():
-    if os.path.exists(SEEN_FILE):
-        with open(SEEN_FILE, "r", encoding="utf-8") as f:
-            return set(json.load(f))
-    return set()
+# =========================
+# HAVAINTOJEN HAKU
+# =========================
 
-def save_seen(seen):
-    with open(SEEN_FILE, "w", encoding="utf-8") as f:
-        json.dump(list(seen), f, ensure_ascii=False)
+def hae_havainnot():
 
-def send_telegram(text):
-    requests.post(
-        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-        data={
-            "chat_id": CHAT_ID,
-            "text": text
-        }
-    )
-
-def fetch_observations():
-    response = requests.get(URL)
+    response = requests.get(URL, timeout=30)
     response.encoding = "latin1"
 
     soup = BeautifulSoup(response.text, "html.parser")
@@ -44,63 +44,118 @@ def fetch_observations():
         if line.strip()
     ]
 
-    today = datetime.now().date()
-    yesterday = today - timedelta(days=1)
+    tanaan = datetime.now().strftime("%d.%m.%Y")
 
-    observations = []
+    kaikki = []
+    tampere = []
 
     for line in lines:
 
-        if "tampere" not in line.lower():
+        if tanaan not in line:
             continue
 
-        match = re.search(r"\b(\d{1,2}\.\d{1,2}\.\d{4})\b", line)
+        kaikki.append(line)
 
-        if not match:
-            continue
+        if "tampere" in line.lower():
+            tampere.append(line)
+
+    return kaikki, tampere
+
+# =========================
+# /tirppa KOMENTO
+# =========================
+
+async def tirppa(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    kaikki, _ = hae_havainnot()
+
+    if not kaikki:
+        await update.message.reply_text(
+            "Kuluvan päivän havaintoja ei löytynyt."
+        )
+        return
+
+    viesti = (
+        "Kuluvan päivän havainnot:\n\n"
+        + "\n\n".join(kaikki[:100])
+    )
+
+    # Telegramin viestiraja
+    if len(viesti) > 4000:
+        viesti = viesti[:4000]
+
+    await update.message.reply_text(viesti)
+
+# =========================
+# AUTOMAATTINEN TAMPERE-KOOSTE
+# =========================
+
+async def laheta_tampere_kooste(context: ContextTypes.DEFAULT_TYPE):
+
+    _, tampere = hae_havainnot()
+
+    if not tampere:
+        viesti = "Tänään ei löytynyt Tampere-havaintoja."
+
+    else:
+        viesti = (
+            "Tampere-havainnot tänään:\n\n"
+            + "\n\n".join(tampere)
+        )
+
+    if len(viesti) > 4000:
+        viesti = viesti[:4000]
+
+    for chat_id in context.bot_data["chat_ids"]:
 
         try:
-            obs_date = datetime.strptime(
-                match.group(1),
-                "%d.%m.%Y"
-            ).date()
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=viesti
+            )
 
-        except:
-            continue
+        except Exception as e:
+            print(e)
 
-        if obs_date in [today, yesterday]:
-            observations.append(line)
+# =========================
+# START
+# =========================
 
-    return observations
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    chat_id = update.effective_chat.id
+
+    if "chat_ids" not in context.bot_data:
+        context.bot_data["chat_ids"] = set()
+
+    context.bot_data["chat_ids"].add(chat_id)
+
+    await update.message.reply_text(
+        "Tirppabotti käynnissä.\n\n"
+        "Komento:\n"
+        "/tirppa"
+    )
+
+# =========================
+# MAIN
+# =========================
 
 def main():
 
-    seen = load_seen()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    observations = fetch_observations()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("tirppa", tirppa))
 
-    new_items = []
+    # Päivittäin klo 15
+    app.job_queue.run_daily(
+        laheta_tampere_kooste,
+        time=datetime.strptime("15:00", "%H:%M").time()
+    )
 
-    for obs in observations:
+    print("Botti käynnissä")
 
-        obs_id = hashlib.sha256(
-            obs.encode("utf-8")
-        ).hexdigest()
-
-        if obs_id not in seen:
-            new_items.append(obs)
-            seen.add(obs_id)
-
-    if new_items:
-
-        message = (
-            "Uudet Tampere-havainnot:\n\n"
-            + "\n\n".join(new_items)
-        )
-
-        send_telegram(message)
-
-        save_seen(seen)
+    app.run_polling()
 
 if __name__ == "__main__":
     main()
