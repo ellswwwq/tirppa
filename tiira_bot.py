@@ -14,7 +14,7 @@ from telegram.ext import (
 # ASETUKSET
 # =========================
 
-BOT_TOKEN = "8823062559:AAGQlnIW883yzu8qvgP-4oeYwtxC_G5GHKM
+BOT_TOKEN = "8823062559:AAGQlnIW883yzu8qvgP-4oeYwtxC_G5GHKM"
 
 "
 
