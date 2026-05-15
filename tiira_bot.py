@@ -16,8 +16,6 @@ from telegram.ext import (
 
 BOT_TOKEN = "8823062559:AAGQlnIW883yzu8qvgP-4oeYwtxC_G5GHKM"
 
-"
-
 URL = "https://www.tiira.fi/mielenkiintoiset2_PiLY.html"
 
 # =========================
