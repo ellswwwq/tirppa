@@ -14,7 +14,9 @@ from telegram.ext import (
 # ASETUKSET
 # =========================
 
-BOT_TOKEN = "OMA_BOT_TOKEN"
+BOT_TOKEN = "8823062559:AAGQlnIW883yzu8qvgP-4oeYwtxC_G5GHKM
+
+"
 
 URL = "https://www.tiira.fi/mielenkiintoiset2_PiLY.html"
 
