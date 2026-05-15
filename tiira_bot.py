@@ -43,27 +43,26 @@ def fetch_tampere_observations():
     yesterday = today - timedelta(days=1)
     allowed_dates = {today, yesterday}
 
+    current_year = today.year
+    current_date = None
     observations = []
 
     for line in lines:
+        date_match = re.fullmatch(r"(\d{1,2})\.(\d{1,2})\.", line)
+
+        if date_match:
+            day = int(date_match.group(1))
+            month = int(date_match.group(2))
+            current_date = datetime(current_year, month, day).date()
+            continue
+
+        if current_date not in allowed_dates:
+            continue
+
         if "tampere" not in line.lower():
             continue
 
-        match = re.search(r"\b(\d{1,2}\.\d{1,2}\.\d{4})\b", line)
-
-        if not match:
-            continue
-
-        try:
-            observation_date = datetime.strptime(
-                match.group(1),
-                "%d.%m.%Y"
-            ).date()
-        except ValueError:
-            continue
-
-        if observation_date in allowed_dates:
-            observations.append(line)
+        observations.append(line)
 
     return observations
 
