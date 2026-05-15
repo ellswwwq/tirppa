@@ -1,9 +1,6 @@
-name: Tiira Bot
+name: Tirppa Bot
 
 on:
-  schedule:
-    - cron: "0 13 * * *"
-
   workflow_dispatch:
 
 jobs:
@@ -22,6 +19,3 @@ jobs:
       - run: pip install -r requirements.txt
 
       - run: python tiira_bot.py
-        env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
