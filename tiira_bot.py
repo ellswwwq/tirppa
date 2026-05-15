@@ -1,40 +1,35 @@
+import os
+import re
 import requests
 from bs4 import BeautifulSoup
-from datetime import datetime
-import re
-import logging
-from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    ContextTypes
-)
-
-# =========================
-# ASETUKSET
-# =========================
-
-BOT_TOKEN = "8823062559:AAGQlnIW883yzu8qvgP-4oeYwtxC_G5GHKM"
+from datetime import datetime, timedelta
 
 URL = "https://www.tiira.fi/mielenkiintoiset2_PiLY.html"
 
-# =========================
-# LOKIT
-# =========================
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
 
-logging.basicConfig(
-    format="%(asctime)s %(name)s %(levelname)s %(message)s",
-    level=logging.INFO
-)
 
-# =========================
-# HAVAINTOJEN HAKU
-# =========================
+def send_telegram(message):
+    telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
-def hae_havainnot():
+    response = requests.post(
+        telegram_url,
+        data={
+            "chat_id": CHAT_ID,
+            "text": message,
+            "disable_web_page_preview": True
+        },
+        timeout=30
+    )
 
+    response.raise_for_status()
+
+
+def fetch_tampere_observations():
     response = requests.get(URL, timeout=30)
     response.encoding = "latin1"
+    response.raise_for_status()
 
     soup = BeautifulSoup(response.text, "html.parser")
 
@@ -44,118 +39,81 @@ def hae_havainnot():
         if line.strip()
     ]
 
-    tanaan = datetime.now().strftime("%d.%m.%Y")
+    today = datetime.now().date()
+    yesterday = today - timedelta(days=1)
+    allowed_dates = {today, yesterday}
 
-    kaikki = []
-    tampere = []
+    observations = []
 
     for line in lines:
-
-        if tanaan not in line:
+        if "tampere" not in line.lower():
             continue
 
-        kaikki.append(line)
+        match = re.search(r"\b(\d{1,2}\.\d{1,2}\.\d{4})\b", line)
 
-        if "tampere" in line.lower():
-            tampere.append(line)
-
-    return kaikki, tampere
-
-# =========================
-# /tirppa KOMENTO
-# =========================
-
-async def tirppa(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
-    kaikki, _ = hae_havainnot()
-
-    if not kaikki:
-        await update.message.reply_text(
-            "Kuluvan päivän havaintoja ei löytynyt."
-        )
-        return
-
-    viesti = (
-        "Kuluvan päivän havainnot:\n\n"
-        + "\n\n".join(kaikki[:100])
-    )
-
-    # Telegramin viestiraja
-    if len(viesti) > 4000:
-        viesti = viesti[:4000]
-
-    await update.message.reply_text(viesti)
-
-# =========================
-# AUTOMAATTINEN TAMPERE-KOOSTE
-# =========================
-
-async def laheta_tampere_kooste(context: ContextTypes.DEFAULT_TYPE):
-
-    _, tampere = hae_havainnot()
-
-    if not tampere:
-        viesti = "Tänään ei löytynyt Tampere-havaintoja."
-
-    else:
-        viesti = (
-            "Tampere-havainnot tänään:\n\n"
-            + "\n\n".join(tampere)
-        )
-
-    if len(viesti) > 4000:
-        viesti = viesti[:4000]
-
-    for chat_id in context.bot_data["chat_ids"]:
+        if not match:
+            continue
 
         try:
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=viesti
-            )
+            observation_date = datetime.strptime(
+                match.group(1),
+                "%d.%m.%Y"
+            ).date()
+        except ValueError:
+            continue
 
-        except Exception as e:
-            print(e)
+        if observation_date in allowed_dates:
+            observations.append(line)
 
-# =========================
-# START
-# =========================
+    return observations
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    chat_id = update.effective_chat.id
+def split_message(text, max_length=3900):
+    parts = []
 
-    if "chat_ids" not in context.bot_data:
-        context.bot_data["chat_ids"] = set()
+    while len(text) > max_length:
+        split_at = text.rfind("\n\n", 0, max_length)
 
-    context.bot_data["chat_ids"].add(chat_id)
+        if split_at == -1:
+            split_at = max_length
 
-    await update.message.reply_text(
-        "Tirppabotti käynnissä.\n\n"
-        "Komento:\n"
-        "/tirppa"
-    )
+        parts.append(text[:split_at])
+        text = text[split_at:].strip()
 
-# =========================
-# MAIN
-# =========================
+    if text:
+        parts.append(text)
+
+    return parts
+
 
 def main():
+    if not BOT_TOKEN:
+        raise ValueError("BOT_TOKEN puuttuu GitHub Secrets -asetuksista.")
 
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    if not CHAT_ID:
+        raise ValueError("CHAT_ID puuttuu GitHub Secrets -asetuksista.")
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("tirppa", tirppa))
+    observations = fetch_tampere_observations()
 
-    # Päivittäin klo 15
-    app.job_queue.run_daily(
-        laheta_tampere_kooste,
-        time=datetime.strptime("15:00", "%H:%M").time()
+    today_text = datetime.now().strftime("%d.%m.%Y")
+    yesterday_text = (datetime.now() - timedelta(days=1)).strftime("%d.%m.%Y")
+
+    if not observations:
+        message = (
+            f"Tampere-havainnot {yesterday_text} ja {today_text}:\n\n"
+            "Ei havaintoja."
+        )
+        send_telegram(message)
+        return
+
+    message = (
+        f"Tampere-havainnot {yesterday_text} ja {today_text}:\n\n"
+        + "\n\n".join(observations)
     )
 
-    print("Botti käynnissä")
+    for part in split_message(message):
+        send_telegram(part)
 
-    app.run_polling()
 
 if __name__ == "__main__":
     main()
