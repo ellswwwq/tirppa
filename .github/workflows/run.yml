@@ -5,6 +5,8 @@ on:
     - cron: "15 16 * * *"
 
   workflow_dispatch:
+  
+  push:
 
 jobs:
   run-bot:
