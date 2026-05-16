@@ -2,7 +2,7 @@ name: Tiira Tampere Bot
 
 on:
   schedule:
-    - cron: "0 12 * * *"
+    - cron: "15 16 * * *"
 
   workflow_dispatch:
 
